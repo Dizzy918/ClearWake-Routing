@@ -247,12 +247,17 @@ class NavigationGraph:
         origin = self._get_node(origin_id)
         destination = self._get_node(destination_id)
 
+        # effective_weight() can discount an edge to 0.5x its haversine
+        # length, so the plain haversine heuristic would over-estimate and
+        # break admissibility; scale it down to the minimum possible cost.
+        h_scale = 0.5 if use_current_weights else 1.0
+
         g_score: dict[str, float] = {origin_id: 0.0}
 
         came_from: dict[str, str] = {}
 
         open_heap: list[tuple[float, str]] = []
-        h0 = origin.distance_to(destination)
+        h0 = origin.distance_to(destination) * h_scale
         heapq.heappush(open_heap, (h0, origin_id))
 
         closed: set[str] = set()
@@ -287,7 +292,7 @@ class NavigationGraph:
                 if tentative_g < g_score.get(neighbour_id, math.inf):
                     g_score[neighbour_id] = tentative_g
                     came_from[neighbour_id] = current_id
-                    h = self._get_node(neighbour_id).distance_to(destination)
+                    h = self._get_node(neighbour_id).distance_to(destination) * h_scale
                     heapq.heappush(open_heap, (tentative_g + h, neighbour_id))
 
         return None
