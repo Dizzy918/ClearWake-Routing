@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
 class Settings(BaseSettings):
@@ -24,12 +24,11 @@ class Settings(BaseSettings):
     AI_WEATHER_FACTOR_WINTER: float = 1.15
 
     # JWT auth — change JWT_SECRET in production.
-    JWT_SECRET: str = "dev-only-secret-change-me"
+    # (>= 32 bytes so HS256 doesn't warn about insecure key length)
+    JWT_SECRET: str = "dev-only-secret-change-me-before-production"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRES_MINUTES: int = 60
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 settings = Settings()

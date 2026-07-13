@@ -1,6 +1,7 @@
 from typing import List, Optional
 from datetime import datetime
 
+from src.core.time_utils import utc_now
 from src.models.ai_models import (
     AnomalyRecord,
     RerouteLog,
@@ -37,7 +38,7 @@ class AIRepository:
         anomaly = AnomalyRecord.objects(id=anomaly_id).first()
         if not anomaly:
             return None
-        anomaly.update(resolved=True, resolved_at=datetime.utcnow())
+        anomaly.update(resolved=True, resolved_at=utc_now())
         anomaly.reload()
         return anomaly
 

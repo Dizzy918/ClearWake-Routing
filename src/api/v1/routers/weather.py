@@ -17,6 +17,7 @@ from typing import List, Optional
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
+from src.core.time_utils import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ def _pick_current_values(hourly: dict, fields: list[str]) -> dict:
     times = hourly.get("time") if isinstance(hourly, dict) else None
     idx = 0
     if isinstance(times, list) and times:
-        now_hour = _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:00")
+        now_hour = _dt.utc_now().strftime("%Y-%m-%dT%H:00")
         try:
             idx = times.index(now_hour)
         except ValueError:

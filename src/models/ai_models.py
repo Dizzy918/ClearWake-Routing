@@ -1,5 +1,6 @@
 import mongoengine as me
 from datetime import datetime
+from src.core.time_utils import utc_now
 
 
 class AnomalyRecord(me.Document):
@@ -16,7 +17,7 @@ class AnomalyRecord(me.Document):
     )
     severity = me.StringField(choices=["low", "medium", "high", "critical"])
     details = me.DictField(default=dict)
-    detected_at = me.DateTimeField(default=datetime.utcnow)
+    detected_at = me.DateTimeField(default=utc_now)
     resolved = me.BooleanField(default=False)
     resolved_at = me.DateTimeField(null=True)
 
@@ -41,7 +42,7 @@ class RerouteLog(me.Document):
         choices=["suggested", "accepted", "rejected", "auto_applied"],
         default="suggested",
     )
-    created_at = me.DateTimeField(default=datetime.utcnow)
+    created_at = me.DateTimeField(default=utc_now)
 
     meta = {
         "collection": "ai_reroute_logs",
@@ -76,7 +77,7 @@ class AIRecommendation(me.Document):
         default="active",
     )
     expires_at = me.DateTimeField(null=True)
-    created_at = me.DateTimeField(default=datetime.utcnow)
+    created_at = me.DateTimeField(default=utc_now)
 
     meta = {
         "collection": "ai_recommendations",
@@ -99,7 +100,7 @@ class ETAPrediction(me.Document):
     predicted_eta_h = me.FloatField(required=True)
     confidence = me.FloatField()
     factors = me.DictField(default=dict)
-    created_at = me.DateTimeField(default=datetime.utcnow)
+    created_at = me.DateTimeField(default=utc_now)
 
     meta = {
         "collection": "ai_eta_predictions",

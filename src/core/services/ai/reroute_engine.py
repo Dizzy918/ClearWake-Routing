@@ -13,6 +13,7 @@ from typing import Optional
 
 from src.core.config import settings
 from src.core.graph_builder import build_navigation_graph
+from src.core.time_utils import utc_now
 from src.core.routing.strategy import (
     DEFAULT_FUEL_RATE,
     DEFAULT_SPEED_KNOTS,
@@ -233,7 +234,7 @@ class RerouteEngine:
             "deltas": reroute_data["deltas"],
             "recommendation": recommendation,
             "reason": reason or "routine_evaluation",
-            "evaluated_at": datetime.utcnow().isoformat(),
+            "evaluated_at": utc_now().isoformat(),
         }
 
     def _find_nearest_waypoint(self, position: list, graph) -> Optional[str]:

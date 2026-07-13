@@ -1,5 +1,6 @@
 import mongoengine as me
 from datetime import datetime
+from src.core.time_utils import utc_now
 
 class Waypoint(me.EmbeddedDocument):
     sequence = me.IntField(required=True)
@@ -17,7 +18,7 @@ class Route(me.Document):
     estimated_fuel_tons = me.FloatField()
     waypoints = me.EmbeddedDocumentListField(Waypoint, default=list)
     is_valid = me.BooleanField(default=True)
-    calculated_at = me.DateTimeField(default=datetime.utcnow)
+    calculated_at = me.DateTimeField(default=utc_now)
 
     meta = {
         "collection": "routes",

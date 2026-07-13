@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from src.models.zone import Zone
+from src.core.time_utils import utc_now
 
 
 def _zone_is_currently_active(zone: Zone, now: datetime) -> bool:
@@ -18,7 +19,7 @@ def _zone_is_currently_active(zone: Zone, now: datetime) -> bool:
 
 class ZoneSpatialService:
     def get_zones_intersecting_point(self, longitude: float, latitude: float) -> list[Zone]:
-        now = datetime.utcnow()
+        now = utc_now()
         candidates = list(
             Zone.objects(
                 geometry__geo_intersects={
@@ -31,7 +32,7 @@ class ZoneSpatialService:
         return [z for z in candidates if _zone_is_currently_active(z, now)]
 
     def get_zones_intersecting_route(self, coordinates: list[list[float]]) -> list[Zone]:
-        now = datetime.utcnow()
+        now = utc_now()
         candidates = list(
             Zone.objects(
                 geometry__geo_intersects={

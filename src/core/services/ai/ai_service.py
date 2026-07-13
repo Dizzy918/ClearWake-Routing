@@ -17,6 +17,7 @@ from src.core.services.ai.reroute_engine import RerouteEngine
 from src.infrastructure.repositories.ai_repository import AIRepository
 from src.infrastructure.repositories.route_repository import RouteRepository
 from src.infrastructure.repositories.vessel_repository import VesselRepository
+from src.core.time_utils import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +124,7 @@ class AIService:
 
         import json
         result = json.loads(updated.to_json())
-        result["applied_at"] = datetime.utcnow().isoformat()
+        result["applied_at"] = utc_now().isoformat()
         return result
 
     def run_anomaly_scan(self, vessel_id: str) -> list:

@@ -8,6 +8,7 @@ from typing import List, Optional
 from bson import ObjectId
 
 from src.models.port_scheduling import DockReservation, Port, PortSchedule
+from src.core.time_utils import utc_now
 
 
 class PortRepository:
@@ -34,7 +35,7 @@ class PortScheduleRepository:
         else:
             for key, value in data.items():
                 setattr(schedule, key, value)
-        schedule.updated_at = datetime.utcnow()
+        schedule.updated_at = utc_now()
         schedule.save()
         return schedule
 

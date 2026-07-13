@@ -1,6 +1,7 @@
 import mongoengine as me
 from datetime import datetime
 from typing import Type
+from src.core.time_utils import utc_now
 
 
 VESSEL_TYPES: tuple[str, ...] = (
@@ -58,7 +59,7 @@ class Vessel(me.Document):
     fuel_consumption_rate = me.FloatField()
     current_status = me.StringField(choices=["idle", "en_route", "docked"], default="idle")
     current_position = me.PointField()
-    created_at = me.DateTimeField(default=datetime.utcnow)
+    created_at = me.DateTimeField(default=utc_now)
 
     meta = {
         "collection": "vessels",

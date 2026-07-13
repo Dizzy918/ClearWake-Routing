@@ -13,6 +13,7 @@ from typing import Optional
 
 from src.core.config import settings
 from src.core.routing.strategy import DEFAULT_SPEED_KNOTS, METRES_PER_NM
+from src.core.time_utils import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +114,7 @@ class AnomalyDetector:
         wp_lon, wp_lat = first_wp.coordinates[0], first_wp.coordinates[1]
         dist_to_first_nm = self._haversine_distance(vessel_lat, vessel_lon, wp_lat, wp_lon)
 
-        elapsed_h = (datetime.utcnow() - route.calculated_at).total_seconds() / 3600.0
+        elapsed_h = (utc_now() - route.calculated_at).total_seconds() / 3600.0
         if elapsed_h < 0.01:
             return None  # Not enough time elapsed for a meaningful estimate.
 
@@ -145,7 +146,7 @@ class AnomalyDetector:
                 "estimated_speed_knots": round(actual_speed, 2),
                 "deviation_knots": round(deviation, 2),
                 "threshold_knots": threshold,
-                "detected_at": datetime.utcnow().isoformat(),
+                "detected_at": utc_now().isoformat(),
             },
         }
 
@@ -239,7 +240,7 @@ class AnomalyDetector:
                 "vessel_bearing_deg": round(vessel_bearing, 2),
                 "deviation_deg": round(diff, 2),
                 "threshold_deg": threshold,
-                "detected_at": datetime.utcnow().isoformat(),
+                "detected_at": utc_now().isoformat(),
             },
         }
 
@@ -280,7 +281,7 @@ class AnomalyDetector:
                         "zone_name": zone.name,
                         "zone_type": zone.zone_type,
                         "vessel_position": [vessel_lon, vessel_lat],
-                        "detected_at": datetime.utcnow().isoformat(),
+                        "detected_at": utc_now().isoformat(),
                     },
                 }
 
@@ -344,7 +345,7 @@ class AnomalyDetector:
                 "estimated_actual_fuel_tons": round(actual_fuel_estimate, 4),
                 "deviation_pct": round(deviation_pct, 2),
                 "distance_covered_nm": round(distance_covered_nm, 2),
-                "detected_at": datetime.utcnow().isoformat(),
+                "detected_at": utc_now().isoformat(),
             },
         }
 

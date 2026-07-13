@@ -9,6 +9,7 @@ from src.core.security import hash_password, issue_access_token, verify_password
 from src.infrastructure.repositories.user_repository import UserRepository
 from src.models.user import User
 from src.schemas.auth import LoginSchema, RegisterUserSchema, TokenResponse, UserOut
+from src.core.time_utils import utc_now
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 repo = UserRepository()
@@ -83,7 +84,7 @@ def login(payload: LoginSchema):
     if not user or not user.is_active or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    user.last_login_at = datetime.utcnow()
+    user.last_login_at = utc_now()
     user.save()
 
     token = issue_access_token(

@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import mongoengine as me
+from src.core.time_utils import utc_now
 
 
 class Port(me.Document):
@@ -27,7 +28,7 @@ class Port(me.Document):
     longitude = me.FloatField(required=True)
     berth_count = me.IntField(default=1, min_value=1)
     timezone = me.StringField(default="UTC")
-    created_at = me.DateTimeField(default=datetime.utcnow)
+    created_at = me.DateTimeField(default=utc_now)
 
     meta = {
         "collection": "ports",
@@ -54,7 +55,7 @@ class PortSchedule(me.Document):
         me.DictField()  # {"start": dt, "end": dt, "reason": str}
     )
     notes = me.StringField()
-    updated_at = me.DateTimeField(default=datetime.utcnow)
+    updated_at = me.DateTimeField(default=utc_now)
 
     meta = {
         "collection": "port_schedules",
@@ -93,7 +94,7 @@ class DockReservation(me.Document):
         default="scheduled",
     )
     notes = me.StringField()
-    created_at = me.DateTimeField(default=datetime.utcnow)
+    created_at = me.DateTimeField(default=utc_now)
 
     meta = {
         "collection": "dock_reservations",

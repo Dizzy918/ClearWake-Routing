@@ -1,5 +1,6 @@
 import mongoengine as me
 from datetime import datetime
+from src.core.time_utils import utc_now
 
 
 class RouteHistory(me.Document):
@@ -17,7 +18,7 @@ class RouteHistory(me.Document):
     waypoint_count = me.IntField()
     weather_conditions = me.DictField()
     current_conditions = me.DictField()
-    calculated_at = me.DateTimeField(default=datetime.utcnow)
+    calculated_at = me.DateTimeField(default=utc_now)
     status = me.StringField(
         choices=["completed", "cancelled", "in_progress"],
         default="completed",

@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import mongoengine as me
+from src.core.time_utils import utc_now
 
 
 ROLES: tuple[str, ...] = ("admin", "operator", "viewer")
@@ -23,7 +24,7 @@ class User(me.Document):
     full_name = me.StringField()
     role = me.StringField(choices=ROLES, default="viewer")
     is_active = me.BooleanField(default=True)
-    created_at = me.DateTimeField(default=datetime.utcnow)
+    created_at = me.DateTimeField(default=utc_now)
     last_login_at = me.DateTimeField()
 
     meta = {

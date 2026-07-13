@@ -1,5 +1,6 @@
 import mongoengine as me
 from datetime import datetime
+from src.core.time_utils import utc_now
 
 class ApiKey(me.EmbeddedDocument):
     key_hash = me.StringField(required=True)
@@ -12,7 +13,7 @@ class Company(me.Document):
     email = me.StringField(required=True, unique=True)
     status = me.StringField(choices=["active", "suspended", "trial"], default="trial")
     api_keys = me.EmbeddedDocumentListField(ApiKey, default=list)
-    created_at = me.DateTimeField(default=datetime.utcnow)
+    created_at = me.DateTimeField(default=utc_now)
 
     meta = {
         "collection": "companies",
