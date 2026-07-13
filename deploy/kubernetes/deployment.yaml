@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: clearwake/api:latest
+          image: ghcr.io/dizzy918/clearwake-routing:49e8eae5e5581f720ba6e7f6665c4d7eeacc816a
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
