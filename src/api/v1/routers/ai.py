@@ -2,7 +2,10 @@ import json
 import logging
 from typing import Optional, List
 
-from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+
+from src.api.auth_dependencies import get_current_user, require_company_access
+from src.models.user import User
 
 from src.core.services.ai.ai_service import AIService
 from src.core.services.ai.ws_manager import WebSocketManager
@@ -20,7 +23,7 @@ from src.schemas.ai import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/ai", tags=["ai"])
+router = APIRouter(prefix="/api/v1/ai", tags=["ai"], dependencies=[Depends(get_current_user)])
 
 _ai_service = None
 ws_manager = WebSocketManager()
@@ -268,7 +271,11 @@ def apply_reroute(request: ApplyRerouteRequest):
 
 
 @router.post("/recommendations/generate", response_model=List[RecommendationOut])
-def generate_recommendations(request: GenerateRecommendationsRequest):
+def generate_recommendations(
+    request: GenerateRecommendationsRequest,
+    user: User = Depends(get_current_user),
+):
+    require_company_access(user, request.company_id)
     """
     Run all recommendation generators for *vessel_id* or *company_id*
     and persist them. Returns the newly-created list.
@@ -298,11 +305,13 @@ def get_recommendations(
     priority: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default="active"),
     limit: int = Query(default=20, ge=1, le=100),
+    user: User = Depends(get_current_user),
 ):
     """
     Get AI recommendations, optionally filtered by vessel, company, type,
     priority, and status.  Results are sorted by priority and confidence.
     """
+    require_company_access(user, company_id)
     service = _get_ai_service()
 
     type_list = None

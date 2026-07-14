@@ -1,11 +1,13 @@
 import json
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from src.api.auth_dependencies import get_current_user
 
 from src.models.event import Event
 from src.schemas.event import EventCreateSchema, EventUpdateSchema
 
-router = APIRouter(prefix="/api/v1/events", tags=["events"])
+router = APIRouter(prefix="/api/v1/events", tags=["events"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("/")

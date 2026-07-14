@@ -44,8 +44,13 @@ def clean_collections():
 
 
 @pytest.fixture
-def company_id() -> str:
-    return str(ObjectId())
+def company_id(client) -> str:
+    """A fresh tenant per test; the client authenticates as one of its users."""
+    from tests.helpers import login_as
+
+    cid = str(ObjectId())
+    login_as(client, cid)
+    return cid
 
 
 class TestFleetProfiles:
@@ -74,14 +79,20 @@ class TestFleetProfiles:
         assert resp.status_code == 422
 
     def test_tenant_isolation_on_get(self, client, company_id):
+        from src.infrastructure.repositories.fleet_profile_repository import (
+            FleetProfileRepository,
+        )
+
         other_company_id = str(ObjectId())
         client.post("/api/v1/fleet-profiles/", json={
             "company_id": company_id, "name": "A",
         })
-        created = client.post("/api/v1/fleet-profiles/", json={
-            "company_id": other_company_id, "name": "B",
+        # The API refuses to write into another tenant, so seed the other
+        # company's profile directly through the repository.
+        other_profile = FleetProfileRepository().create({
+            "company_id": ObjectId(other_company_id), "name": "B",
         })
-        other_profile_id = created.json()["_id"]["$oid"]
+        other_profile_id = str(other_profile.id)
 
         # Wrong tenant must NOT see the other tenant's profile.
         cross = client.get(
@@ -89,6 +100,13 @@ class TestFleetProfiles:
             params={"company_id": company_id},
         )
         assert cross.status_code == 404
+
+        # Asking with the other tenant's own id is forbidden outright.
+        forbidden = client.get(
+            f"/api/v1/fleet-profiles/{other_profile_id}",
+            params={"company_id": other_company_id},
+        )
+        assert forbidden.status_code == 403
 
     def test_update_changes_fields(self, client, company_id):
         created = client.post("/api/v1/fleet-profiles/", json={

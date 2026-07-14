@@ -38,7 +38,10 @@ def client(mock_db):
     with patch("src.main.init_db"),\
          patch("src.main.close_db"):
         from src.main import app
+        from tests.helpers import login_as
         with TestClient(app, raise_server_exceptions=True) as c:
+            # Route payloads in this file use company 507f1f77bcf86cd799439011.
+            login_as(c, "507f1f77bcf86cd799439011")
             yield c
 
 

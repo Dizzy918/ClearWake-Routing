@@ -16,12 +16,14 @@ import logging
 from typing import List, Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from src.api.auth_dependencies import get_current_user
 from src.core.time_utils import utc_now
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/weather", tags=["weather"])
+router = APIRouter(prefix="/api/v1/weather", tags=["weather"], dependencies=[Depends(get_current_user)])
 
 _MARINE_BASE = "https://marine-api.open-meteo.com/v1/marine"
 _WEATHER_BASE = "https://api.open-meteo.com/v1/forecast"

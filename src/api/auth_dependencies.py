@@ -56,3 +56,16 @@ def require_role(*allowed: str) -> Callable:
         return user
 
     return _check
+
+
+def require_company_access(user: User, company_id: object) -> None:
+    """403 when *company_id* names a different tenant than the caller's.
+
+    ``None`` passes — endpoints treat a missing company filter as
+    "the caller's own company".
+    """
+    if company_id is not None and str(company_id) != str(user.company_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot access another company's data",
+        )

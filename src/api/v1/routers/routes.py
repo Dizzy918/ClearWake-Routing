@@ -6,7 +6,10 @@ from typing import Optional
 from pathlib import Path
 
 from bson import ObjectId
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from src.api.auth_dependencies import get_current_user, require_company_access
+from src.models.user import User
 from concurrent.futures import ThreadPoolExecutor
 from fastapi.responses import FileResponse
 
@@ -30,7 +33,7 @@ from src.core.services.draft_trim_optimizer import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/routes", tags=["routes"])
+router = APIRouter(prefix="/api/v1/routes", tags=["routes"], dependencies=[Depends(get_current_user)])
 repo = RouteRepository()
 history_repo = RouteHistoryRepository()
 
@@ -279,7 +282,8 @@ def get_landmask_geojson():
 
 
 @router.post("/calculate")
-def calculate_route(request: RouteCalculationSchema):
+def calculate_route(request: RouteCalculationSchema, user: User = Depends(get_current_user)):
+    require_company_access(user, request.company_id or None)
 
     start_id = _resolve_node_id(request.start_node_id)
     end_id = _resolve_node_id(request.end_node_id)
@@ -336,7 +340,7 @@ def calculate_route(request: RouteCalculationSchema):
 
     route_data = {
         "request_id": ObjectId(),
-        "company_id": ObjectId(request.company_id) if ObjectId.is_valid(request.company_id) else ObjectId(),
+        "company_id": ObjectId(request.company_id) if ObjectId.is_valid(request.company_id) else user.company_id,
         "vessel_id": ObjectId(request.vessel_id) if ObjectId.is_valid(request.vessel_id) else ObjectId(),
         "optimization_mode": request.optimization_mode,
         "total_distance_nm": stats["total_distance_nm"],
@@ -386,23 +390,28 @@ def calculate_route(request: RouteCalculationSchema):
 
 
 @router.get("/history")
-def get_route_history(limit: int = 50):
-    """Return the most recent route-history entries."""
-    entries = history_repo.get_recent(limit=limit)
+def get_route_history(limit: int = 50, user: User = Depends(get_current_user)):
+    """Return the caller's company's most recent route-history entries."""
+    entries = history_repo.get_by_company(str(user.company_id), limit=limit)
     return [json.loads(e.to_json()) for e in entries]
 
 
 @router.get("/history/{vessel_id}")
-def get_route_history_by_vessel(vessel_id: str, limit: int = 50):
-    """Return route-history entries for a specific vessel."""
+def get_route_history_by_vessel(
+    vessel_id: str,
+    limit: int = 50,
+    user: User = Depends(get_current_user),
+):
+    """Return route-history entries for a specific vessel (own company only)."""
     entries = history_repo.get_by_vessel(vessel_id, limit=limit)
+    entries = [e for e in entries if e.company_id == user.company_id]
     return [json.loads(e.to_json()) for e in entries]
 
 
 @router.get("/{route_id}")
-def get_route_by_id(route_id: str):
+def get_route_by_id(route_id: str, user: User = Depends(get_current_user)):
     route = repo.get_by_id(route_id)
-    if not route:
+    if not route or route.company_id != user.company_id:
         raise HTTPException(status_code=404, detail="Route not found")
     return json.loads(route.to_json())
 
@@ -411,7 +420,12 @@ executor = ThreadPoolExecutor(max_workers=5)
 
 
 @router.post("/calculate-batch")
-def calculate_routes_batch(requests: list[RouteCalculationSchema]):
+def calculate_routes_batch(
+    requests: list[RouteCalculationSchema],
+    user: User = Depends(get_current_user),
+):
+    for request in requests:
+        require_company_access(user, request.company_id or None)
 
     def calculate_single(request: RouteCalculationSchema):
         try:

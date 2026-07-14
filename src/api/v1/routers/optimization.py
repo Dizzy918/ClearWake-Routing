@@ -1,7 +1,9 @@
 """Optimization router — draft / trim service."""
 
 from bson import ObjectId
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from src.api.auth_dependencies import get_current_user
 
 from src.core.services.draft_trim_optimizer import (
     DraftTrimInput,
@@ -10,7 +12,7 @@ from src.core.services.draft_trim_optimizer import (
 from src.infrastructure.repositories.vessel_repository import VesselRepository
 from src.schemas.optimization import DraftTrimRequest, DraftTrimResponse
 
-router = APIRouter(prefix="/api/v1/optimization", tags=["optimization"])
+router = APIRouter(prefix="/api/v1/optimization", tags=["optimization"], dependencies=[Depends(get_current_user)])
 _vessels = VesselRepository()
 
 

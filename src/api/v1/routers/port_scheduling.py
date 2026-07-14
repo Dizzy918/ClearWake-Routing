@@ -22,7 +22,10 @@ import json
 from typing import Optional
 
 from bson import ObjectId
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from src.api.auth_dependencies import get_current_user, require_company_access
+from src.models.user import User
 
 from src.infrastructure.repositories.port_scheduling_repository import (
     DockReservationRepository,
@@ -36,7 +39,7 @@ from src.schemas.port_scheduling import (
     PortScheduleSchema,
 )
 
-router = APIRouter(prefix="/api/v1", tags=["port-scheduling"])
+router = APIRouter(prefix="/api/v1", tags=["port-scheduling"], dependencies=[Depends(get_current_user)])
 _ports = PortRepository()
 _schedules = PortScheduleRepository()
 _reservations = DockReservationRepository()
@@ -105,11 +108,15 @@ def list_reservations(
 
 
 @router.post("/dock-reservations", status_code=201)
-def create_reservation(payload: DockReservationCreateSchema):
+def create_reservation(
+    payload: DockReservationCreateSchema,
+    user: User = Depends(get_current_user),
+):
     if not ObjectId.is_valid(payload.vessel_id):
         raise HTTPException(status_code=400, detail="Invalid vessel_id")
     if payload.company_id and not ObjectId.is_valid(payload.company_id):
         raise HTTPException(status_code=400, detail="Invalid company_id")
+    require_company_access(user, payload.company_id)
 
     candidate = DockReservation(
         port_id=payload.port_id,

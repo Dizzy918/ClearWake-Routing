@@ -1,10 +1,13 @@
 """Analytics router."""
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from src.api.auth_dependencies import get_current_user, require_company_access
+from src.models.user import User
 
 from src.core.services.analytics_service import AnalyticsService
 
-router = APIRouter(prefix="/api/v1/analytics", tags=["analytics"])
+router = APIRouter(prefix="/api/v1/analytics", tags=["analytics"], dependencies=[Depends(get_current_user)])
 _service = AnalyticsService()
 
 
@@ -17,7 +20,12 @@ def vessel_summary(vessel_id: str, limit: int = Query(default=200, ge=1, le=1000
 
 
 @router.get("/companies/{company_id}")
-def company_summary(company_id: str, limit: int = Query(default=500, ge=1, le=2000)):
+def company_summary(
+    company_id: str,
+    limit: int = Query(default=500, ge=1, le=2000),
+    user: User = Depends(get_current_user),
+):
+    require_company_access(user, company_id)
     try:
         return _service.company_summary(company_id, limit=limit)
     except Exception as exc:

@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import patch
 
 from src.main import app
+from tests.helpers import login_as
 
 @pytest.fixture
 def client():
@@ -19,6 +20,8 @@ def client():
             uuidRepresentation="standard",
         )
         with TestClient(app) as test_client:
+            # Payloads in this file use company 000000000000000000000001.
+            login_as(test_client, "000000000000000000000001")
             yield test_client
         mongoengine.disconnect_all()
 

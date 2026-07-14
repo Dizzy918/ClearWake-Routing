@@ -1,12 +1,14 @@
 import json
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from src.api.auth_dependencies import get_current_user
 
 from src.infrastructure.repositories.zone_repositories import ZoneRepository
 from src.models.zone import Zone as ZoneModel
 from src.schemas.zone import ZoneCreateSchema, ZoneUpdateSchema
 
-router = APIRouter(prefix="/api/v1/zones", tags=["zones"])
+router = APIRouter(prefix="/api/v1/zones", tags=["zones"], dependencies=[Depends(get_current_user)])
 repo = ZoneRepository()
 
 

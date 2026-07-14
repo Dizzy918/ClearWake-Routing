@@ -1,7 +1,9 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from src.api.auth_dependencies import get_current_user
 from concurrent.futures import ThreadPoolExecutor
 
 from src.schemas.route import RouteCalculationSchema
@@ -18,7 +20,7 @@ from src.core.ports import resolve_port
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/routing", tags=["routing"])
+router = APIRouter(prefix="/api/v1/routing", tags=["routing"], dependencies=[Depends(get_current_user)])
 
 
 _GRAPH = build_navigation_graph()
