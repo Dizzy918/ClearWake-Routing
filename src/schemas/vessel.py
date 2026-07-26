@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic import field_validator
 from typing import Optional
 
@@ -46,3 +46,38 @@ class VesselUpdateSchema(VesselTypeValidationMixin):
     specs: Optional[VesselSpecsSchema] = None
     fuel_consumption_rate: Optional[float] = None
     current_status: Optional[str] = None
+
+
+class VesselPositionSchema(BaseModel):
+    """A single position report from AIS, GPS, or an operator."""
+
+    lon: float = Field(..., ge=-180, le=180)
+    lat: float = Field(..., ge=-90, le=90)
+    heading_deg: Optional[float] = Field(default=None, ge=0, le=360)
+    speed_knots: Optional[float] = Field(default=None, ge=0, le=100)
+    source: str = Field(default="gps")
+
+    @field_validator("source")
+    @classmethod
+    def _known_source(cls, value: str) -> str:
+        from src.models.vessel_position import POSITION_SOURCES
+
+        if value not in POSITION_SOURCES:
+            raise ValueError(f"source must be one of: {', '.join(POSITION_SOURCES)}")
+        return value
+
+
+class VesselCourseSchema(BaseModel):
+    """An order to send a vessel somewhere."""
+
+    destination_port: str = Field(..., min_length=1)
+    strategy: str = Field(default="fastest")
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("strategy")
+    @classmethod
+    def _known_strategy(cls, value: str) -> str:
+        allowed = {"fastest", "eco"}
+        if value not in allowed:
+            raise ValueError(f"strategy must be one of: {', '.join(sorted(allowed))}")
+        return value

@@ -8,7 +8,13 @@ from src.core.config import settings
 from src.core.security import hash_password, issue_access_token, verify_password
 from src.infrastructure.repositories.user_repository import UserRepository
 from src.models.user import User
-from src.schemas.auth import LoginSchema, RegisterUserSchema, TokenResponse, UserOut
+from src.schemas.auth import (
+    LoginSchema,
+    RegisterUserSchema,
+    RoleChangeSchema,
+    TokenResponse,
+    UserOut,
+)
 from src.core.time_utils import utc_now
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -100,4 +106,55 @@ def login(payload: LoginSchema):
 
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
+    return _to_user_out(user)
+
+
+@router.get("/users", response_model=list[UserOut])
+def list_company_users(actor: User = Depends(require_role("admin"))):
+    """Every sub-account under the caller's company.
+
+    Scoped to the caller's own company — an admin manages their own staff and
+    cannot enumerate another operator's.
+    """
+    return [_to_user_out(u) for u in repo.list_for_company(str(actor.company_id))]
+
+
+@router.patch("/users/{user_id}/role", response_model=UserOut)
+def change_user_role(
+    user_id: str,
+    payload: RoleChangeSchema,
+    actor: User = Depends(require_role("admin")),
+):
+    """Promote or demote a sub-account."""
+    user = repo.get_by_id(user_id)
+    if not user or str(user.company_id) != str(actor.company_id):
+        raise HTTPException(status_code=404, detail="User not found")
+    if str(user.id) == str(actor.id) and payload.role != "admin":
+        # Otherwise a company can lock itself out of its own account.
+        raise HTTPException(status_code=400, detail="Admins cannot demote themselves")
+    user.role = payload.role
+    user.save()
+    return _to_user_out(user)
+
+
+@router.post("/users/{user_id}/deactivate", response_model=UserOut)
+def deactivate_user(user_id: str, actor: User = Depends(require_role("admin"))):
+    """Suspend a sub-account without deleting its history."""
+    user = repo.get_by_id(user_id)
+    if not user or str(user.company_id) != str(actor.company_id):
+        raise HTTPException(status_code=404, detail="User not found")
+    if str(user.id) == str(actor.id):
+        raise HTTPException(status_code=400, detail="Admins cannot deactivate themselves")
+    user.is_active = False
+    user.save()
+    return _to_user_out(user)
+
+
+@router.post("/users/{user_id}/activate", response_model=UserOut)
+def activate_user(user_id: str, actor: User = Depends(require_role("admin"))):
+    user = repo.get_by_id(user_id)
+    if not user or str(user.company_id) != str(actor.company_id):
+        raise HTTPException(status_code=404, detail="User not found")
+    user.is_active = True
+    user.save()
     return _to_user_out(user)

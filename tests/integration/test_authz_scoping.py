@@ -79,6 +79,22 @@ PUBLIC_ENDPOINTS = [
     ("GET", "/api/v1/routes/landmask"),
 ]
 
+# Changing a zone reroutes ships — including, for shared zones, other
+# operators' ships. A read-only account must never be able to do it.
+VIEWER_FORBIDDEN_ENDPOINTS = [
+    ("POST", "/api/v1/zones/"),
+    ("POST", "/api/v1/zones/circle"),
+    ("POST", "/api/v1/zones/presets/suez_canal"),
+    ("POST", "/api/v1/zones/import/nga"),
+    ("PATCH", "/api/v1/zones/000000000000000000000001"),
+    ("DELETE", "/api/v1/zones/000000000000000000000001"),
+    ("POST", "/api/v1/zones/000000000000000000000001/activate"),
+    ("POST", "/api/v1/zones/000000000000000000000001/deactivate"),
+    ("POST", "/api/v1/vessels/000000000000000000000001/course"),
+    ("DELETE", "/api/v1/vessels/000000000000000000000001/course"),
+    ("POST", "/api/v1/vessels/000000000000000000000001/position"),
+]
+
 
 class TestAuthenticationRequired:
     @pytest.mark.parametrize("method,path", PROTECTED_ENDPOINTS)
@@ -112,6 +128,28 @@ class TestAuthenticationRequired:
         )
         assert resp.status_code == 401
         assert resp.json()["detail"] == "Invalid credentials"
+
+
+class TestViewerCannotChangeTheWorld:
+    """A read-only account must not be able to reroute anybody's ships.
+
+    Zone changes are the sharp edge: a shared zone (an official closure)
+    affects every operator's routing, so letting a viewer close one would let
+    one customer disrupt another's fleet.
+    """
+
+    @pytest.mark.parametrize("method,path", VIEWER_FORBIDDEN_ENDPOINTS)
+    def test_viewer_is_refused(self, client, method, path):
+        login_as(client, str(ObjectId()), role="viewer")
+        resp = client.request(method, path, json={})
+        assert resp.status_code == 403, (
+            f"viewer reached {method} {path} -> {resp.status_code}; "
+            "a read-only account must not be able to change routing"
+        )
+
+    def test_viewer_can_still_read(self, client, company_id):
+        login_as(client, company_id, role="viewer")
+        assert client.get("/api/v1/zones/").status_code == 200
 
 
 class TestCompanyScoping:

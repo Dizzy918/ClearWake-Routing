@@ -16,6 +16,27 @@ class ZoneRepository:
     def get_active(self) -> list[Zone]:
         return list(Zone.objects(status="active"))
 
+    # -- tenant-scoped reads --
+    # A company sees the shared zones (company_id unset — official closures and
+    # imported hazards) plus its own. It never sees another operator's.
+    def visible_to(self, company_id) -> list[Zone]:
+        from mongoengine.queryset.visitor import Q
+
+        return list(Zone.objects(Q(company_id=None) | Q(company_id=company_id)))
+
+    def active_visible_to(self, company_id) -> list[Zone]:
+        from mongoengine.queryset.visitor import Q
+
+        return list(
+            Zone.objects(Q(company_id=None) | Q(company_id=company_id)) .filter(status="active")
+        )
+
+    def is_editable_by(self, zone: Zone, user) -> bool:
+        """Shared zones are admin-only; a company's own zones are its own."""
+        if zone.company_id is None:
+            return getattr(user, "role", None) == "admin"
+        return str(zone.company_id) == str(getattr(user, "company_id", ""))
+
     def get_by_type(self, zone_type: str) -> list[Zone]:
         return list(Zone.objects(zone_type=zone_type))
 

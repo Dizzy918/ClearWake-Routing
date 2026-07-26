@@ -4,38 +4,18 @@ from typing import Type
 from src.core.time_utils import utc_now
 
 
-VESSEL_TYPES: tuple[str, ...] = (
-    "tanker",
-    "container_ship",
-    "bulk_carrier",
-    "passenger_ship",
-    "ferry",
-    "ro_ro_ship",
-    "lng_carrier",
-    "lpg_carrier",
-    "chemical_tanker",
-    "car_carrier",
-    "general_cargo",
-    "offshore_support",
-    "research_vessel",
-    "icebreaker",
-    "tugboat",
-    "fishing_vessel",
-    "cruise_ship",
-    "yacht",
-    "patrol_boat",
-    "dredger",
+from src.models.vessel_types import (  # re-exported for existing importers
+    PROPULSION_KINDS,
+    PROPULSION_MOTOR,
+    VESSEL_TYPE_OPTIONS,
+    VESSEL_TYPE_SPECS,
+    VESSEL_TYPES,
+    category_for,
+    format_vessel_type_label,
+    fuel_multiplier_for,
+    is_wind_dependent,
+    propulsion_for,
 )
-
-
-def format_vessel_type_label(vessel_type: str) -> str:
-    return vessel_type.replace("_", " ").title()
-
-
-VESSEL_TYPE_OPTIONS = [
-    {"value": vessel_type, "label": format_vessel_type_label(vessel_type)}
-    for vessel_type in VESSEL_TYPES
-]
 
 
 class VesselSpecs(me.EmbeddedDocument):
@@ -50,6 +30,15 @@ class VesselSpecs(me.EmbeddedDocument):
     hydro_resistance_coef = me.FloatField()
 
 
+VESSEL_STATUSES: tuple[str, ...] = (
+    "idle",
+    "en_route",
+    "docked",
+    "anchored",
+    "maintenance",
+)
+
+
 class Vessel(me.Document):
     company_id = me.ObjectIdField(required=True)
     name = me.StringField(required=True)
@@ -57,8 +46,22 @@ class Vessel(me.Document):
     vessel_type = me.StringField(choices=VESSEL_TYPES)
     specs = me.EmbeddedDocumentField(VesselSpecs)
     fuel_consumption_rate = me.FloatField()
-    current_status = me.StringField(choices=["idle", "en_route", "docked"], default="idle")
+    current_status = me.StringField(choices=VESSEL_STATUSES, default="idle")
     current_position = me.PointField()
+
+    # ---- live tracking ----
+    # Last reported course over ground (degrees true) and speed (knots), plus
+    # when the report came in. Kept on the vessel so the fleet view is a
+    # single query; the full breadcrumb trail lives in VesselPosition.
+    heading_deg = me.FloatField(min_value=0, max_value=360)
+    speed_knots = me.FloatField(min_value=0)
+    position_updated_at = me.DateTimeField()
+
+    # ---- current voyage ----
+    # Set when a course is assigned; cleared when the voyage ends.
+    active_route_id = me.ObjectIdField()
+    destination_port = me.StringField()
+
     created_at = me.DateTimeField(default=utc_now)
 
     meta = {
@@ -72,8 +75,27 @@ class Vessel(me.Document):
         return float(self.fuel_consumption_rate or 0.0)
 
     def calculate_fuel(self, distance_nm: float) -> float:
-        """Calculate expected fuel burn for a distance in nautical miles."""
-        return self._rate() * distance_nm
+        """Expected fuel burn over a distance in nautical miles.
+
+        Subclasses below hard-code their own multiplier for historical
+        reasons; every type added since is driven by the taxonomy table, so
+        the base implementation looks the factor up rather than defaulting
+        to 1.0 and silently under-reporting.
+        """
+        return self._rate() * distance_nm * fuel_multiplier_for(self.vessel_type)
+
+    @property
+    def propulsion(self) -> str:
+        return propulsion_for(self.vessel_type)
+
+    @property
+    def is_wind_dependent(self) -> bool:
+        """No engine to fall back on — severe weather is a hard block."""
+        return is_wind_dependent(self.vessel_type)
+
+    @property
+    def category(self) -> str:
+        return category_for(self.vessel_type)
 
     @classmethod
     def build(cls, **kwargs):

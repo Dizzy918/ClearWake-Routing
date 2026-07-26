@@ -491,7 +491,34 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg-p
 .auth-card button:disabled{opacity:.6;cursor:default}
 .auth-error{margin:2px 0 0;font-size:.8rem;color:#fb7185}
 .auth-error[hidden]{display:none}
+
+/* ---- live fleet + presets ---- */
+.vessel-arrow svg{display:block;overflow:visible}
+.vessel-popup .muted{color:var(--text-secondary,#93a4c4);font-size:.85em}
+.vessel-popup .popup-actions{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px}
+.vessel-popup .popup-actions input{flex:1 1 130px;padding:5px 7px;border-radius:6px;
+  border:1px solid var(--border,#22304d);background:var(--bg-primary,#0b1120);
+  color:var(--text-primary,#e6edf7);font:inherit;font-size:.85em}
+.vessel-popup .popup-actions button{padding:5px 10px;border:none;border-radius:6px;cursor:pointer;
+  background:var(--accent,#3b82f6);color:#fff;font:inherit;font-size:.85em}
+.vessel-popup .popup-actions button.ghost{background:transparent;color:var(--text-secondary,#93a4c4);
+  border:1px solid var(--border,#22304d)}
+.panel-section{padding:10px 0;border-bottom:1px solid var(--border,#22304d)}
+.panel-label{display:block;font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--text-secondary,#93a4c4);margin-bottom:6px}
+#zonePresetSelect{width:100%;padding:7px 9px;border-radius:8px;border:1px solid var(--border,#22304d);
+  background:var(--bg-primary,#0b1120);color:var(--text-primary,#e6edf7);font:inherit;font-size:.86rem}
+.preset-actions{display:flex;gap:6px;margin-top:7px}
+.preset-actions button,.wide{flex:1;padding:7px;border:none;border-radius:8px;cursor:pointer;
+  background:var(--accent,#3b82f6);color:#fff;font:inherit;font-size:.84rem}
+.preset-actions button.ghost,button.ghost.wide{background:transparent;
+  color:var(--text-secondary,#93a4c4);border:1px solid var(--border,#22304d)}
+button.ghost.wide{width:100%;margin-top:7px}
+#liveBadge{width:9px;height:9px;border-radius:50%;background:#64748b;display:inline-block;
+  margin-left:7px;vertical-align:middle;transition:background .3s}
+#liveBadge.live-on{background:#4ade80;box-shadow:0 0 7px #4ade80}
 </style>
+
 
 </head>
 <body>
@@ -692,6 +719,15 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg-p
 
       <!-- ZONES PANEL -->
       <div class="panel" id="panel-zones">
+<div class="panel-section">
+  <label class="panel-label">Close a known passage</label>
+  <select id="zonePresetSelect"><option value="">Loading…</option></select>
+  <div class="preset-actions">
+    <button onclick="applyZonePreset(true)">Close now</button>
+    <button class="ghost" onclick="applyZonePreset(false)">Add inactive</button>
+  </div>
+  <button class="ghost wide" onclick="importNgaHazards()">Import live NGA warnings</button>
+</div>
         <button class="btn btn-ghost" onclick="showAddZoneForm()">+ Add zone</button>
         <div id="addZoneForm" style="display:none;flex-direction:column;gap:10px">
           <div class="section-label">New zone</div>
@@ -1600,7 +1636,50 @@ async function initMap() {
 async function bootstrapAfterLogin() {
   await loadVesselTypes();
   await Promise.all([loadZones(), loadVessels(), loadPortCatalogue()]);
+  await loadFleetPositions();
+  await loadZonePresets();
+  if (!fleetSocket || fleetSocket.readyState > 1) connectFleetSocket();
 }
+
+/* ---- one-click closures ---- */
+let zonePresets = [];
+
+async function loadZonePresets() {
+  const resp = await fetch('/api/v1/zones/presets/templates');
+  if (!resp.ok) return;
+  zonePresets = await resp.json();
+  const select = document.getElementById('zonePresetSelect');
+  if (!select) return;
+  select.innerHTML = '<option value="">Choose a passage…</option>' +
+    zonePresets.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+}
+
+async function applyZonePreset(close) {
+  const select = document.getElementById('zonePresetSelect');
+  const id = select?.value;
+  if (!id) { notify('Pick a passage first'); return; }
+  const resp = await fetch(`/api/v1/zones/presets/${id}?status=${close ? 'active' : 'inactive'}`,
+                           { method: 'POST' });
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok) { notify(body.detail || 'Could not create the zone'); return; }
+  const reroute = body.auto_reroute;
+  if (reroute && reroute.affected) {
+    notify(`Zone closed — ${reroute.rerouted.length} of ${reroute.affected} vessels re-routed`);
+  } else {
+    notify(close ? 'Zone created and closed' : 'Zone created (inactive)');
+  }
+  await loadZones();
+}
+
+async function importNgaHazards() {
+  notify('Importing live navigational warnings…');
+  const resp = await fetch('/api/v1/zones/import/nga?limit=200&activate=false', { method: 'POST' });
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok) { notify(body.detail || 'Import failed'); return; }
+  notify(`Imported ${body.created} new and updated ${body.updated} hazard areas (inactive)`);
+  await loadZones();
+}
+
 
 async function loadZones() {
   try {
@@ -1982,15 +2061,185 @@ function renderVesselList() {
   }).join('');
 }
 
+/* Live position, per vessel id, filled by the fleet snapshot and then kept
+   current by the websocket. Falls back to whatever the vessel record holds. */
+const livePositions = new Map();
+
+function vesselLatLng(v) {
+  const live = livePositions.get(String(v._id?.$oid || v._id || v.vessel_id));
+  if (live) return [live.lat, live.lon];
+  const pos = v.current_position || v.current_location;
+  if (!pos?.coordinates) return null;
+  return [pos.coordinates[1], pos.coordinates[0]];
+}
+
+function vesselHeading(v) {
+  const live = livePositions.get(String(v._id?.$oid || v._id || v.vessel_id));
+  return (live && live.heading_deg != null) ? live.heading_deg : v.heading_deg;
+}
+
+/* A ship is drawn as an arrow so a glance shows which way it is going.
+   Heading unknown means a plain dot: better than implying a course. */
+function vesselMarker(latlng, heading, colour) {
+  if (heading == null) {
+    return L.circleMarker(latlng, {
+      pane: 'vesselPane', radius: 5,
+      fillColor: colour, color: '#fff', weight: 1.5, fillOpacity: 1,
+    });
+  }
+  const icon = L.divIcon({
+    className: 'vessel-arrow',
+    html: `<svg width="22" height="22" viewBox="0 0 22 22"
+                style="transform:rotate(${heading}deg)">
+             <path d="M11 1 L17 20 L11 16 L5 20 Z" fill="${colour}"
+                   stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/>
+           </svg>`,
+    iconSize: [22, 22], iconAnchor: [11, 11],
+  });
+  return L.marker(latlng, { icon, pane: 'vesselPane' });
+}
+
+const VESSEL_STATUS_COLOUR = {
+  en_route: '#60a5fa', idle: '#94a3b8', docked: '#4ade80',
+  anchored: '#fbbf24', maintenance: '#fb7185',
+};
+
+function vesselPopupHtml(v) {
+  const id = String(v._id?.$oid || v._id || '');
+  const live = livePositions.get(id);
+  const speed = live?.speed_knots ?? v.speed_knots;
+  const dest = v.destination_port || live?.destination_port;
+  const seen = live?.recorded_at || v.position_updated_at;
+  return `
+    <div class="vessel-popup">
+      <b>${v.name}</b><br>
+      <span class="muted">${getVesselTypeLabel(v.vessel_type)}</span><br>
+      Status: ${v.current_status || 'unknown'}<br>
+      ${speed != null ? `Speed: ${Number(speed).toFixed(1)} kn<br>` : ''}
+      ${dest ? `Destination: ${dest}<br>` : ''}
+      ${seen ? `<span class="muted">Last fix: ${new Date(seen).toLocaleString()}</span><br>` : ''}
+      <div class="popup-actions">
+        <input id="course-dest-${id}" placeholder="New destination port"/>
+        <button onclick="setVesselCourse('${id}')">Set course</button>
+        <button class="ghost" onclick="showVesselTrack('${id}')">Show track</button>
+      </div>
+    </div>`;
+}
+
 function renderVesselsOnMap() {
   vesselsLayer.clearLayers();
   getFilteredVessels().forEach(v => {
-    const pos = v.current_position || v.current_location;
-    if (!pos?.coordinates) return;
-    L.circleMarker([pos.coordinates[1], pos.coordinates[0]], {
-      pane:'vesselPane', radius:5, fillColor:'#60a5fa', color:'#fff', weight:1.5, fillOpacity:1
-    }).bindPopup(`<b>${v.name}</b><br>${getVesselTypeLabel(v.vessel_type)}<br>${v.current_status}`).addTo(vesselsLayer);
+    const latlng = vesselLatLng(v);
+    if (!latlng) return;
+    const colour = VESSEL_STATUS_COLOUR[v.current_status] || '#60a5fa';
+    vesselMarker(latlng, vesselHeading(v), colour)
+      .bindPopup(vesselPopupHtml(v))
+      .addTo(vesselsLayer);
   });
+}
+
+/* ---- fleet positions + live updates ---- */
+
+async function loadFleetPositions() {
+  const resp = await fetch('/api/v1/vessels/positions/latest');
+  if (!resp.ok) return;
+  const fixes = await resp.json();
+  fixes.forEach(f => livePositions.set(String(f.vessel_id), f));
+  if (vesselsVisible) renderVesselsOnMap();
+}
+
+let trackLayer = null;
+async function showVesselTrack(vesselId) {
+  const resp = await fetch(`/api/v1/vessels/${vesselId}/track?limit=500`);
+  if (!resp.ok) { notify('Could not load track'); return; }
+  const fixes = await resp.json();
+  if (trackLayer) map.removeLayer(trackLayer);
+  if (!fixes.length) { notify('No track history yet'); return; }
+  trackLayer = L.polyline(fixes.map(f => [f.lat, f.lon]),
+    { color: '#38bdf8', weight: 2, dashArray: '4 4' }).addTo(map);
+  map.fitBounds(trackLayer.getBounds(), { padding: [40, 40] });
+}
+
+async function setVesselCourse(vesselId) {
+  const input = document.getElementById(`course-dest-${vesselId}`);
+  const destination = (input?.value || '').trim();
+  if (!destination) { notify('Enter a destination port'); return; }
+  const resp = await fetch(`/api/v1/vessels/${vesselId}/course`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ destination_port: destination, strategy: currentStrategy || 'fastest' }),
+  });
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok) { notify(body.detail || 'Course change refused'); return; }
+  notify(`${body.vessel_name}: course set for ${body.destination} (${Math.round(body.distance_nm)} NM)`);
+  drawCourse(body.waypoints);
+  await loadVessels();
+}
+
+function drawCourse(waypoints) {
+  if (!waypoints?.length) return;
+  L.polyline(waypoints.map(w => [w.lat, w.lon]),
+    { color: '#a78bfa', weight: 3, opacity: 0.9 }).addTo(vesselsLayer);
+}
+
+/* The websocket carries position reports, auto-reroute alerts and course
+   changes. Reconnects with backoff — a dropped socket must not silently
+   leave the fleet view frozen on stale positions. */
+let fleetSocket = null, fleetSocketRetry = 1000;
+
+function connectFleetSocket() {
+  const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+  let url = `${scheme}://${location.host}/ws/ai/notifications`;
+  try {
+    fleetSocket = new WebSocket(url);
+  } catch { return; }
+
+  fleetSocket.onopen = () => { fleetSocketRetry = 1000; setLiveBadge(true); };
+
+  fleetSocket.onmessage = (event) => {
+    let message;
+    try { message = JSON.parse(event.data); } catch { return; }
+    const payload = message.payload || {};
+    switch (message.event_type) {
+      case 'vessel_position':
+        livePositions.set(String(payload.vessel_id), payload);
+        if (vesselsVisible) renderVesselsOnMap();
+        break;
+      case 'auto_reroute':
+        handleAutoRerouteAlert(payload);
+        break;
+      case 'vessel_course_changed':
+        notify(`${payload.vessel_name} re-routed to ${payload.destination}`);
+        loadVessels();
+        break;
+    }
+  };
+
+  fleetSocket.onclose = () => {
+    setLiveBadge(false);
+    setTimeout(connectFleetSocket, fleetSocketRetry);
+    fleetSocketRetry = Math.min(fleetSocketRetry * 2, 30000);
+  };
+  fleetSocket.onerror = () => { try { fleetSocket.close(); } catch {} };
+}
+
+function setLiveBadge(on) {
+  const badge = document.getElementById('liveBadge');
+  if (badge) {
+    badge.classList.toggle('live-on', on);
+    badge.title = on ? 'Live updates connected' : 'Live updates disconnected — retrying';
+  }
+}
+
+function handleAutoRerouteAlert(payload) {
+  const n = (payload.rerouted || []).length;
+  const failed = (payload.failed || []).length;
+  if (!n && !failed) return;
+  let text = `${payload.zone_name || 'A zone'} closed — `;
+  text += n ? `${n} vessel${n > 1 ? 's' : ''} re-routed` : '';
+  if (failed) text += `${n ? ', ' : ''}${failed} could not be re-routed`;
+  notify(text);
+  loadVessels();
 }
 function toggleVesselsLayer(v) {
   vesselsVisible = v;

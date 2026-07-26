@@ -38,3 +38,18 @@ class UserOut(BaseModel):
     full_name: Optional[str] = None
     role: str
     is_active: bool
+
+
+class RoleChangeSchema(BaseModel):
+    """Change a sub-account's role."""
+
+    role: str
+
+    @field_validator("role")
+    @classmethod
+    def _known_role(cls, value: str) -> str:
+        from src.models.user import ROLES
+
+        if value not in ROLES:
+            raise ValueError(f"role must be one of: {', '.join(ROLES)}")
+        return value

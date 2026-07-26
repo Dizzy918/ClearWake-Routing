@@ -4,17 +4,26 @@ from typing import Optional
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from src.api.auth_dependencies import get_current_user, require_company_access
+from src.api.auth_dependencies import get_current_user, require_company_access, require_role
 
 from src.core.services.vessel_status_service import VesselStatusService
+from src.core.services.vessel_tracking_service import ImplausibleJump, VesselTrackingService
+from src.core.services.vessel_course_service import CourseError, VesselCourseService
 from src.infrastructure.repositories.vessel_repository import VesselRepository
 from src.models.user import User
 from src.models.vessel import VESSEL_TYPE_OPTIONS, Vessel as VesselModel
-from src.schemas.vessel import VesselCreateSchema, VesselUpdateSchema
+from src.schemas.vessel import (
+    VesselCourseSchema,
+    VesselCreateSchema,
+    VesselPositionSchema,
+    VesselUpdateSchema,
+)
 
 router = APIRouter(prefix="/api/v1/vessels", tags=["vessels"], dependencies=[Depends(get_current_user)])
 repo = VesselRepository()
 status_service = VesselStatusService(repo)
+tracking_service = VesselTrackingService()
+course_service = VesselCourseService()
 
 
 def _get_own_vessel(vessel_id: str, user: User) -> VesselModel:
@@ -90,3 +99,98 @@ def delete_vessel(vessel_id: str, user: User = Depends(get_current_user)):
     if not repo.delete(vessel_id):
         raise HTTPException(status_code=404, detail="Vessel not found")
     return {"deleted": True}
+
+
+# ---------------------------------------------------------------------------
+# Live tracking
+# ---------------------------------------------------------------------------
+
+@router.get("/positions/latest")
+def get_fleet_positions(user: User = Depends(get_current_user)):
+    """Current position of every vessel in the caller's fleet.
+
+    One query for the whole fleet — the map calls this on load and then keeps
+    itself up to date from the websocket rather than polling.
+    """
+    return tracking_service.latest_for_company(str(user.company_id))
+
+
+@router.post("/{vessel_id}/position")
+def report_position(
+    vessel_id: str,
+    report: VesselPositionSchema,
+    user: User = Depends(require_role("admin", "operator")),
+):
+    """Record a position fix for a vessel.
+
+    This is the ingest point for AIS/GPS feeds as well as manual entry.
+    Implausible jumps are rejected rather than stored: a bad fix that lands
+    a ship inland would otherwise corrupt the track and any route planned
+    from it.
+    """
+    vessel = _get_own_vessel(vessel_id, user)
+    try:
+        fix = tracking_service.record_position(
+            vessel,
+            longitude=report.lon,
+            latitude=report.lat,
+            heading_deg=report.heading_deg,
+            speed_knots=report.speed_knots,
+            source=report.source,
+        )
+    except ImplausibleJump as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return fix.to_dict()
+
+
+@router.get("/{vessel_id}/track")
+def get_vessel_track(
+    vessel_id: str,
+    limit: int = Query(default=500, ge=1, le=5000),
+    user: User = Depends(get_current_user),
+):
+    """Recent position history, newest first — for track playback."""
+    _get_own_vessel(vessel_id, user)
+    return [fix.to_dict() for fix in tracking_service.track_for(vessel_id, limit=limit)]
+
+
+# ---------------------------------------------------------------------------
+# Course control
+# ---------------------------------------------------------------------------
+
+@router.post("/{vessel_id}/course")
+def set_vessel_course(
+    vessel_id: str,
+    command: VesselCourseSchema,
+    user: User = Depends(require_role("admin", "operator")),
+):
+    """Assign or change a vessel's course from the operations desk.
+
+    Restricted to admins and operators — a viewer can watch the fleet but
+    must not be able to redirect a ship. Every change is written to the audit
+    log and pushed to the company's dashboards.
+    """
+    vessel = _get_own_vessel(vessel_id, user)
+    try:
+        result = course_service.set_course(
+            vessel=vessel,
+            destination_port=command.destination_port,
+            strategy=command.strategy,
+            actor=user,
+            reason=command.reason,
+        )
+    except CourseError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return result
+
+
+@router.delete("/{vessel_id}/course")
+def clear_vessel_course(
+    vessel_id: str,
+    user: User = Depends(require_role("admin", "operator")),
+):
+    """End the current voyage and return the vessel to idle."""
+    vessel = _get_own_vessel(vessel_id, user)
+    return course_service.clear_course(vessel, actor=user)

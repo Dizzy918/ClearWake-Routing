@@ -113,6 +113,63 @@ curl -X POST http://localhost:8080/api/v1/auth/login \
 
 Set `JWT_SECRET` in `.env` to a long random value in any non-dev environment.
 
+### Fleet operations
+
+The platform is multi-tenant: a company has an **admin** (the master account),
+**operator** and **viewer** sub-accounts. Admins manage staff through
+`/api/v1/auth/users`; operators can move ships; viewers can only look.
+
+**Live tracking.** `POST /api/v1/vessels/{id}/position` ingests AIS/GPS fixes.
+Each one appends to the vessel's track, updates the fleet view, and is pushed
+to that company's dashboards over `ws://…/ws/ai/notifications`. Fixes implying
+an impossible speed are rejected rather than stored, so one bad report cannot
+corrupt a track or the routes planned from it. Track history ages out after 30
+days via a TTL index.
+
+**Course control.** `POST /api/v1/vessels/{id}/course` plots a route from where
+the vessel actually is to a named port, stores it, writes an audit entry and
+notifies the fleet. Restricted to admins and operators.
+
+**Automatic rerouting.** Closing a zone re-plans every voyage already sailing
+through it. Close the Suez Canal and the ships committed to it are recomputed
+around the Cape, with the operator told which ones moved and which could not be
+routed at all.
+
+**Zones.** Twelve chokepoint presets (Suez, Panama, Hormuz, Bab-el-Mandeb,
+Malacca, Gulf of Aden…) mean closing a passage is one click rather than a
+hand-drawn polygon, and `POST /api/v1/zones/circle` closes a radius around a
+point. Zones with no `company_id` are shared — official closures and imported
+hazards, editable only by an admin; a company's own zones are private to it.
+
+**Real hazard data.** `POST /api/v1/zones/import/nga` pulls live navigational
+warnings from [NGA Maritime Safety Information](https://msi.nga.mil) — piracy,
+live firing, wrecks, drifting hazards — parses the positions out of the warning
+text and buffers them into keep-clear circles, classified by what the warning
+says. `POST /api/v1/zones/import/marine-regions` imports maritime boundary
+polygons from [Marine Regions](https://marineregions.org). Both are free and
+need no key; imports are idempotent and land **inactive** so nothing reroutes
+before a human has looked.
+
+**Weather.** Conditions are graded on the Beaufort and Douglas scales. A vessel
+with an engine is *penalised* by severe weather; a vessel without one is
+*blocked* by it, because it may be unable to steer clear. Wind-assisted cargo
+ships carry propulsion and are treated as motorised. See
+`src/core/weather_safety.py`.
+
+**Vessel types.** 60 types under conventional trade names across ten
+categories, each declaring its fuel multiplier and propulsion. Four are
+engineless sail; one is wind-assisted.
+
+### Demo data
+
+```bash
+SEED_ADMIN_PASSWORD='choose-one' venv/bin/python scripts/seed_demo_fleet.py
+```
+
+Creates one company, three sub-accounts and a 38-vessel fleet scattered across
+real trading areas. Re-running is safe. Omit the variable and a password is
+generated and printed once.
+
 ### Background jobs
 
 The platform has an in-process task queue for GRIB ingest, analytics rollups, AI reroutes, and weather refresh. Admins can enqueue jobs by name and inspect their state:

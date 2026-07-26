@@ -267,3 +267,62 @@ class CurrentAwareStrategy(RoutingStrategy):
             use_current_weights=True,
             vessel_speed_knots=speed,
         )
+
+
+class WeatherAwareStrategy(RoutingStrategy):
+    """Routing that respects what the weather is doing to *this* ship.
+
+    Conditions are sampled per maritime region rather than per edge — a
+    forecast has nothing like edge resolution, and pretending otherwise would
+    be false precision.
+
+    A wind-dependent vessel is refused passage through severe weather: with no
+    engine it may be unable to steer clear, so this is a hard constraint, not
+    a cost. Engine-driven vessels are allowed through and charged a penalty,
+    leaving the decision where it belongs — with the master.
+    """
+
+    def __init__(self, base_strategy: Optional[RoutingStrategy] = None, conditions=None):
+        self.base_strategy = base_strategy or FastestStrategy()
+        # conditions: [{"bbox": [w, s, e, n], "severity": "severe"}, ...]
+        self._conditions = conditions or []
+
+    def _severity_at(self, longitude: float, latitude: float) -> str:
+        from src.core.weather_safety import SEVERITY_CALM
+
+        worst = SEVERITY_CALM
+        order = ["calm", "moderate", "rough", "severe"]
+        for region in self._conditions:
+            bbox = region.get("bbox")
+            if not bbox or len(bbox) != 4:
+                continue
+            west, south, east, north = bbox
+            if west <= longitude <= east and south <= latitude <= north:
+                severity = region.get("severity", SEVERITY_CALM)
+                if order.index(severity) > order.index(worst):
+                    worst = severity
+        return worst
+
+    def calculate_route(
+        self,
+        graph: NavigationGraph,
+        start_id: str,
+        end_id: str,
+        vessel: Optional[VesselConstraints] = None,
+    ) -> Optional[List[Waypoint]]:
+        from src.core.weather_safety import is_passable
+
+        vessel_type = getattr(vessel, "vessel_type", None)
+        base_filter = _make_vessel_filter(vessel)
+
+        def weather_filter(edge: Edge) -> bool:
+            if base_filter is not None and not base_filter(edge):
+                return False
+            # Test both ends: a leg is only as safe as its worst end.
+            for node in (edge.source, edge.destination):
+                severity = self._severity_at(node.longitude, node.latitude)
+                if not is_passable(vessel_type, severity):
+                    return False
+            return True
+
+        return graph.find_path(start_id, end_id, edge_filter=weather_filter)
