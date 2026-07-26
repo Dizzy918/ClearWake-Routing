@@ -2,7 +2,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional, List, Callable
 from src.core.graph import NavigationGraph, Waypoint, Edge
-from src.core.spatial.zone_spatial_service import ZoneSpatialService
+from src.core.spatial.zone_spatial_service import (
+    PrefetchedZoneSpatialService,
+    ZoneSpatialService,
+)
 
 
 @dataclass
@@ -112,15 +115,19 @@ class EcoStrategy(RoutingStrategy):
 
     Draft / length / beam restrictions from the vessel are also applied.
 
-    Zone intersection checks are performed **lazily** — only edges that A*
-    actually explores get checked against the database.  This reduces zone
-    queries from ~8 000 (one per edge in the graph) to ~50–100 (only the
-    edges in the explored portion of the search tree), cutting query time
-    from minutes to under a second.
+    Zone checks happen **lazily** — only edges A* actually explores are tested,
+    not all ~8 600 edges in the graph. For a cross-graph route that is still
+    around 2 000 checks, so they are answered from an in-memory snapshot of the
+    active zones (:class:`PrefetchedZoneSpatialService`) instead of one
+    ``$geoIntersects`` round-trip each. Measured together, that takes an eco
+    route from ~2.4 s to a few milliseconds.
+
+    Pass a different ``spatial_service`` to override; the database-backed
+    :class:`ZoneSpatialService` gives the same answers, just slowly.
     """
 
     def __init__(self, spatial_service: Optional[ZoneSpatialService] = None):
-        self.spatial_service = spatial_service or ZoneSpatialService()
+        self.spatial_service = spatial_service or PrefetchedZoneSpatialService()
 
     def calculate_route(
         self,

@@ -19,6 +19,9 @@ from src.api.v1.routers import ai as ai_router
 
 router = APIRouter()
 router.include_router(auth.router)
+# Public reference data (ports, land mask) — registered so the map can draw
+# before anyone logs in. See the comment on routes.public_router.
+router.include_router(routes.public_router)
 router.include_router(routes.router)
 router.include_router(routing.router)
 router.include_router(vessels.router)

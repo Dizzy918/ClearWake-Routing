@@ -5,14 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>ClearWake — Maritime Route Optimization</title>
 <meta name="description" content="Intelligent maritime route optimization with real-time weather, zone avoidance, and vessel-aware planning."/>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css"/>
+<link rel="stylesheet" href="/static/vendor/leaflet.css"/>
+<link rel="stylesheet" href="/static/vendor/leaflet.draw.css"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.1.0/turf.min.js"></script>
+<!-- Loaded non-blocking: if fonts.googleapis.com is slow or unreachable the map
+     still renders, in the fallback face, instead of waiting on it. -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet" media="print" onload="this.media='all';this.onload=null"/>
+<noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/></noscript>
+<script src="/static/vendor/leaflet.js"></script>
+<script src="/static/vendor/leaflet.draw.js"></script>
+<script src="/static/vendor/turf.min.js"></script>
 <style>
 :root {
   --bg-primary: #0b1120;
@@ -468,7 +472,27 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg-p
 .route-current-item { display: flex; flex-direction: column; gap: 1px; }
 .route-current-label { font-size: 9px; color: var(--text-muted); }
 .route-current-value { font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--text-primary); }
+
+/* ---- sign-in panel ---- */
+.auth-overlay{position:fixed;inset:0;z-index:4000;display:flex;align-items:center;justify-content:center;
+  background:rgba(8,14,28,.82);backdrop-filter:blur(4px)}
+.auth-overlay[hidden]{display:none}
+.auth-card{width:min(360px,92vw);display:flex;flex-direction:column;gap:8px;padding:26px 28px;
+  background:var(--bg-secondary,#111c33);border:1px solid var(--border,#22304d);border-radius:14px;
+  box-shadow:0 24px 60px rgba(0,0,0,.5)}
+.auth-card h2{margin:0;font-size:1.15rem;color:var(--text-primary,#e6edf7)}
+.auth-card .auth-sub{margin:0 0 6px;font-size:.82rem;line-height:1.45;color:var(--text-secondary,#93a4c4)}
+.auth-card label{font-size:.74rem;text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary,#93a4c4)}
+.auth-card input{padding:9px 11px;border-radius:8px;border:1px solid var(--border,#22304d);
+  background:var(--bg-primary,#0b1120);color:var(--text-primary,#e6edf7);font:inherit;font-size:.9rem}
+.auth-card input:focus{outline:2px solid var(--accent,#3b82f6);outline-offset:1px}
+.auth-card button{margin-top:10px;padding:10px;border:none;border-radius:8px;cursor:pointer;
+  background:var(--accent,#3b82f6);color:#fff;font:inherit;font-weight:600}
+.auth-card button:disabled{opacity:.6;cursor:default}
+.auth-error{margin:2px 0 0;font-size:.8rem;color:#fb7185}
+.auth-error[hidden]{display:none}
 </style>
+
 </head>
 <body>
 
@@ -756,8 +780,115 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg-p
 </div>
 <div class="notif" id="notif"></div>
 
+<div class="auth-overlay" id="authOverlay" hidden>
+  <form class="auth-card" id="authForm">
+    <h2>Sign in</h2>
+    <p class="auth-sub">The routing API needs a token before it will return ports, zones or routes.</p>
+    <label for="authEmail">Email</label>
+    <input id="authEmail" name="email" type="email" required autocomplete="username"/>
+    <label for="authPassword">Password</label>
+    <input id="authPassword" name="password" type="password" required autocomplete="current-password"/>
+    <p class="auth-error" id="authError" role="alert" hidden></p>
+    <button type="submit" id="authSubmit">Sign in</button>
+  </form>
+</div>
+
 <script>
 const MAP_PROVIDER = "__MAP_PROVIDER__";
+
+/* ---- API authentication -------------------------------------------------
+   Every business endpoint requires a bearer token. This file used to send
+   bare fetch() calls, so after auth was introduced the map rendered but each
+   request came back 401 and failed silently — no ports, no zones, no routes.
+
+   Rather than edit ~50 call sites, the token is attached here: same-origin
+   /api/ requests get an Authorization header, and a 401 opens the sign-in
+   panel instead of doing nothing. Everything else is left alone.            */
+const AUTH_TOKEN_KEY = 'clearwake.token';
+const getAuthToken = () => { try { return localStorage.getItem(AUTH_TOKEN_KEY); } catch { return null; } };
+const setAuthToken = (t) => {
+  try { t ? localStorage.setItem(AUTH_TOKEN_KEY, t) : localStorage.removeItem(AUTH_TOKEN_KEY); } catch {}
+};
+
+const _nativeFetch = window.fetch.bind(window);
+window.fetch = function (input, init) {
+  init = init || {};
+  const url = typeof input === 'string' ? input : (input && input.url) || '';
+  const isOwnApi = url.startsWith('/api/');
+  if (isOwnApi) {
+    const token = getAuthToken();
+    if (token) {
+      const headers = new Headers(init.headers || (typeof input === 'object' ? input.headers : undefined) || {});
+      headers.set('Authorization', 'Bearer ' + token);
+      init = Object.assign({}, init, { headers });
+    }
+  }
+  return _nativeFetch(input, init).then(function (resp) {
+    // Never bounce on the login call itself — that 401 means bad credentials.
+    if (resp.status === 401 && isOwnApi && !url.includes('/auth/login')) {
+      setAuthToken(null);
+      showAuthPanel('Session expired or not signed in.');
+    }
+    return resp;
+  });
+};
+
+function showAuthPanel(message) {
+  const overlay = document.getElementById('authOverlay');
+  if (!overlay || !overlay.hidden) return;   // already open
+  const err = document.getElementById('authError');
+  if (message && err) { err.textContent = message; err.hidden = false; }
+  overlay.hidden = false;
+  const email = document.getElementById('authEmail');
+  if (email) email.focus();
+}
+
+function hideAuthPanel() {
+  const overlay = document.getElementById('authOverlay');
+  if (overlay) overlay.hidden = true;
+}
+
+async function submitLogin(event) {
+  event.preventDefault();
+  const btn = document.getElementById('authSubmit');
+  const err = document.getElementById('authError');
+  const email = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPassword').value;
+
+  btn.disabled = true;
+  btn.textContent = 'Signing in...';
+  if (err) err.hidden = true;
+  try {
+    const resp = await _nativeFetch('/api/v1/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!resp.ok) {
+      const detail = await resp.json().catch(() => ({}));
+      throw new Error(detail.detail || 'Sign-in failed (' + resp.status + ')');
+    }
+    const data = await resp.json();
+    if (!data.access_token) throw new Error('No token in response');
+    setAuthToken(data.access_token);
+    hideAuthPanel();
+    document.getElementById('authForm').reset();
+    if (typeof bootstrapAfterLogin === 'function') await bootstrapAfterLogin();
+  } catch (e) {
+    if (err) { err.textContent = e.message; err.hidden = false; }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sign in';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  const form = document.getElementById('authForm');
+  if (form) form.addEventListener('submit', submitLogin);
+  // No token at all: ask up front rather than letting every panel fail blank.
+  if (!getAuthToken()) showAuthPanel('Sign in to load ports, zones and routes.');
+});
+
 const DEMO_COMPANY_ID = '000000000000000000000001';
 let map, zonesLayer, routeLayer, vesselsLayer;
 let landMaskLayer = null, lakeMaskLayer = null;
@@ -836,13 +967,16 @@ const zoneColors = {
 };
 
 const LAND_GEOJSON_SOURCES = [
+  // Served from this same origin, so if it is unreachable the page itself
+  // was not served either. The remote entries below are a last resort for a
+  // stale deployment, not part of the normal path.
   '/api/v1/routes/landmask',
-  '/static/ne_50m_land.geojson',
   'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_land.geojson',
   'https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@master/geojson/ne_50m_land.geojson',
 ];
 
 const LAKES_GEOJSON_SOURCES = [
+  '/static/ne_50m_lakes.geojson',
   'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_lakes.geojson',
   'https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@master/geojson/ne_50m_lakes.geojson',
 ];
@@ -1434,8 +1568,7 @@ async function initMap() {
     }, 500);
   });
   setStatus('Ready');
-  await loadVesselTypes();
-  await Promise.all([loadZones(), loadVessels(), loadPortCatalogue()]);
+  await bootstrapAfterLogin();
 
   loadRegionalWeather();
   regionWeatherTimer = setInterval(() => {
@@ -1460,6 +1593,13 @@ async function initMap() {
       }
     }
   });
+}
+
+/* Everything here needs a token. Called once at startup and again after a
+   successful sign-in, so the panels fill in without a page reload. */
+async function bootstrapAfterLogin() {
+  await loadVesselTypes();
+  await Promise.all([loadZones(), loadVessels(), loadPortCatalogue()]);
 }
 
 async function loadZones() {

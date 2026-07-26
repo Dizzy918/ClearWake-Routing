@@ -71,6 +71,15 @@ PROTECTED_ENDPOINTS = [
 ]
 
 
+# Reachable without a token, deliberately. The map is served before anyone can
+# log in and cannot draw a coastline without this. When it was accidentally
+# swept behind auth, the browser silently fell back to pulling a 591 kB GeoJSON
+# from raw.githubusercontent.com on every single load.
+PUBLIC_ENDPOINTS = [
+    ("GET", "/api/v1/routes/landmask"),
+]
+
+
 class TestAuthenticationRequired:
     @pytest.mark.parametrize("method,path", PROTECTED_ENDPOINTS)
     def test_unauthenticated_request_is_rejected(self, client, method, path):
@@ -78,6 +87,14 @@ class TestAuthenticationRequired:
         resp = client.request(method, path, headers=headers)
         # Requests without a bearer token never reach the handler.
         assert resp.status_code == 401, f"{method} {path} -> {resp.status_code}"
+
+    @pytest.mark.parametrize("method,path", PUBLIC_ENDPOINTS)
+    def test_public_reference_data_stays_reachable(self, client, method, path):
+        headers = {k: v for k, v in client.headers.items() if k != "authorization"}
+        resp = client.request(method, path, headers=headers)
+        assert (
+            resp.status_code != 401
+        ), f"{method} {path} is behind auth again — the map cannot load it before login"
 
     def test_garbage_token_is_rejected(self, client):
         resp = client.get(

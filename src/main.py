@@ -2,6 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -29,6 +30,11 @@ async def lifespan(app: FastAPI):
     await _close_client()
 
 app = FastAPI(title="ClearWake Routing", lifespan=lifespan)
+
+# The two biggest responses are text: map.html (~128 kB) and the land mask
+# GeoJSON (~591 kB). Both compress by roughly 4-5x, and both are on the
+# critical path for the map rendering at all.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 app.include_router(api_router)
 app.mount("/static", StaticFiles(directory="src/static"), name="static")

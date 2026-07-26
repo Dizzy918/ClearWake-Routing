@@ -34,6 +34,18 @@ from src.core.services.draft_trim_optimizer import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/routes", tags=["routes"], dependencies=[Depends(get_current_user)])
+
+# The coastline geometry is a public dataset (Natural Earth) and the map
+# cannot draw anything at all without it, so it sits on a router with no auth
+# dependency. Business data — including the port list, which the team asserts
+# is protected in tests/integration/test_authz_scoping.py — stays on `router`.
+#
+# It was reachable until the blanket Depends(get_current_user) above was added,
+# which swept it up. The map's land-mask fallback chain then fell through to
+# raw.githubusercontent.com, so every map load dragged a 591 kB GeoJSON across
+# the internet — and showed no coastlines at all when GitHub was unreachable.
+public_router = APIRouter(prefix="/api/v1/routes", tags=["routes"])
+
 repo = RouteRepository()
 history_repo = RouteHistoryRepository()
 
@@ -266,7 +278,7 @@ def get_available_ports():
     ]
 
 
-@router.get("/landmask")
+@public_router.get("/landmask")
 def get_landmask_geojson():
     global _LAND_MASK_CACHE
     if _LAND_MASK_CACHE is None:
